@@ -1,0 +1,148 @@
+2026-08-01 14:28:48,446 - ERROR - 
+1 Failed download:
+2026-08-01 14:28:48,446 - ERROR - ['000001.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:28:51,365 - ERROR - 
+1 Failed download:
+2026-08-01 14:28:51,365 - ERROR - ['600519.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:28:52,556 - ERROR - 
+1 Failed download:
+2026-08-01 14:28:52,556 - ERROR - ['000858.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:28:54,347 - ERROR - 
+1 Failed download:
+2026-08-01 14:28:54,347 - ERROR - ['600036.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:28:55,818 - ERROR - 
+1 Failed download:
+2026-08-01 14:28:55,818 - ERROR - ['601318.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:28:57,522 - ERROR - 
+1 Failed download:
+2026-08-01 14:28:57,522 - ERROR - ['300750.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:28:58,694 - ERROR - 
+1 Failed download:
+2026-08-01 14:28:58,694 - ERROR - ['002594.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:00,397 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:00,397 - ERROR - ['688981.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:01,735 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:01,735 - ERROR - ['002475.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:03,446 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:03,446 - ERROR - ['300059.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:04,811 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:04,811 - ERROR - ['600570.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:27,641 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:27,641 - ERROR - ['000001.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:30,188 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:30,188 - ERROR - ['600519.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:33,608 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:33,608 - ERROR - ['000858.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:39,051 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:39,052 - ERROR - ['600036.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:43,349 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:43,349 - ERROR - ['601318.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:45,978 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:45,978 - ERROR - ['300750.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:47,345 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:47,345 - ERROR - ['002594.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:50,034 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:50,034 - ERROR - ['688981.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:29:53,042 - ERROR - 
+1 Failed download:
+2026-08-01 14:29:53,042 - ERROR - ['002475.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:30:01,065 - ERROR - 
+1 Failed download:
+2026-08-01 14:30:01,065 - ERROR - ['300059.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:30:03,811 - ERROR - 
+1 Failed download:
+2026-08-01 14:30:03,811 - ERROR - ['600570.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:02,870 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:02,870 - ERROR - ['000001.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:04,168 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:04,168 - ERROR - ['600519.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:05,670 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:05,671 - ERROR - ['000858.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:06,758 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:06,758 - ERROR - ['600036.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:08,221 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:08,222 - ERROR - ['601318.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:09,263 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:09,263 - ERROR - ['300750.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:10,706 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:10,706 - ERROR - ['002594.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:11,727 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:11,729 - ERROR - ['688981.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:13,220 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:13,220 - ERROR - ['002475.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:14,338 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:14,339 - ERROR - ['300059.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:31:15,824 - ERROR - 
+1 Failed download:
+2026-08-01 14:31:15,824 - ERROR - ['600570.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:24,956 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:24,957 - ERROR - ['000001.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:26,874 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:26,874 - ERROR - ['600519.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:27,967 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:27,968 - ERROR - ['000858.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:29,433 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:29,433 - ERROR - ['600036.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:30,501 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:30,501 - ERROR - ['601318.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:32,017 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:32,017 - ERROR - ['300750.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:33,128 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:33,128 - ERROR - ['002594.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:34,735 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:34,735 - ERROR - ['688981.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:35,842 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:35,842 - ERROR - ['002475.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:37,414 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:37,414 - ERROR - ['300059.SZ']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 14:54:38,535 - ERROR - 
+1 Failed download:
+2026-08-01 14:54:38,535 - ERROR - ['600570.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 15:11:35,683 - ERROR - $000001.SS: possibly delisted; no price data found  (1d 2024-01-01 -> 2026-12-31)
+2026-08-01 15:11:35,687 - ERROR - 
+1 Failed download:
+2026-08-01 15:11:35,687 - ERROR - ['000001.SS']: possibly delisted; no price data found  (1d 2024-01-01 -> 2026-12-31)
+2026-08-01 15:16:15,576 - ERROR - 
+1 Failed download:
+2026-08-01 15:16:15,576 - ERROR - ['000001.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 15:37:29,956 - ERROR - 
+1 Failed download:
+2026-08-01 15:37:29,957 - ERROR - ['000001.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 15:40:20,855 - ERROR - 
+1 Failed download:
+2026-08-01 15:40:20,855 - ERROR - ['000001.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-08-01 15:41:24,127 - ERROR - 
+1 Failed download:
+2026-08-01 15:41:24,127 - ERROR - ['000001.SS']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
