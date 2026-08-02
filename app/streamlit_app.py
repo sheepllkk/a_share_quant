@@ -1,5 +1,4 @@
 import streamlit as st
-import requests
 import pandas as pd
 import numpy as np
 import time
@@ -16,8 +15,35 @@ import importlib
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import train_model
 
+# 导入风控模块 (从原 main.py 迁移过来)
+try:
+    from core.risk_manager import RiskManager
+except ImportError:
+    st.error("警告: 未找到 core.risk_manager 模块，请确保文件路径正确。")
+    RiskManager = None
+
 st.set_page_config(page_title="A股量化实战系统", layout="wide")
 st.title("A股量化多因子策略实战系统 (BASS框架)")
+
+# ==========================================
+# 0. 全局配置与模型缓存 (替代原 FastAPI 的启动加载)
+# ==========================================
+UNIVERSE_MAPPING = {
+    "sh600519": "贵州茅台", "sz000858": "五粮液", "sh600036": "招商银行", "sh601318": "中国平安",
+    "sz300750": "宁德时代", "sz002594": "比亚迪", "sh688981": "中芯国际", "sz002475": "立讯精密",
+    "sz300059": "东方财富", "sh600570": "恒生电子"
+}
+
+@st.cache_resource
+def load_xgboost_model():
+    """缓存加载核心预测模型，避免每次交互重复读取硬盘"""
+    model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "model", "general_market_model.pkl")
+    # 兼容相对路径
+    if not os.path.exists(model_path):
+        model_path = "model/general_market_model.pkl"
+    if os.path.exists(model_path):
+        return joblib.load(model_path)
+    return None
 
 # ==========================================
 # 1. 定义本地文件缓存辅助功能 (实现刷新持久化)
@@ -86,7 +112,7 @@ if page == "策略回测板块":
         c3.metric("组合最大回撤", f"{cached_metrics['max_drawdown']*100:.2f}%")
         c4.metric("轮动交易胜率", f"{cached_metrics['win_rate']*100:.2f}%")
         
-        # 修改 streamlit_app.py 中的这段逻辑
+        # 增加容错：防止 equity_curve 为空导致的 KeyError
         if "equity_curve" in cached_metrics and len(cached_metrics["equity_curve"]) > 0:
             st.subheader("策略累计净值走势")
             df_curve = pd.DataFrame(cached_metrics["equity_curve"])
@@ -94,7 +120,7 @@ if page == "策略回测板块":
             df_curve.set_index('date', inplace=True)
             st.line_chart(df_curve[['策略净值', '大盘基准']])
         else:
-            st.warning("⚠️ 净值曲线数据为空。可能是历史数据源拉取失败或测试集时间段无数据，请检查网络或数据接口。")
+            st.warning("⚠️ 净值曲线数据为空，可能是历史回测区间内未产生有效交易数据。")
 
         if cached_trades:
             with st.expander("查看历史每日调仓与持仓明细表", expanded=False):
@@ -120,11 +146,7 @@ if page == "策略回测板块":
                 
                 all_stock_dfs = {}
                 bs.login()
-                UNIVERSE_MAPPING = {
-                    "sh600519": "贵州茅台", "sz000858": "五粮液", "sh600036": "招商银行", "sh601318": "中国平安",
-                    "sz300750": "宁德时代", "sz002594": "比亚迪", "sh688981": "中芯国际", "sz002475": "立讯精密",
-                    "sz300059": "东方财富", "sh600570": "恒生电子"
-                }
+                
                 for symbol, name in UNIVERSE_MAPPING.items():
                     try:
                         code = symbol[2:]
@@ -193,6 +215,8 @@ if page == "策略回测板块":
                     raise ValueError("未能成功加载任何标的历史数据。")
 
                 full_df = pd.concat(all_stock_dfs.values(), axis=0)
+                
+                # 特征对齐：10 维
                 feature_cols = [
                     'peTTM', 'pbMRQ', 'relative_strength', 'market_panic', 
                     'returns', 'volatility', 'mom_5', 'macd',
@@ -206,6 +230,10 @@ if page == "策略回测板块":
                 
                 train_df = full_df[full_df.index < "2024-01-01"]
                 test_df = full_df[full_df.index >= "2024-01-01"]
+                
+                if test_df.empty:
+                    st.error("2024年以后的测试集数据为空，无法生成回测！请检查数据源。")
+                    st.stop()
                 
                 X_train, y_train = train_df[feature_cols], train_df['target']
                 model = xgb.XGBClassifier(n_estimators=100, learning_rate=0.05, max_depth=3, min_child_weight=3, subsample=0.8, colsample_bytree=0.8, reg_alpha=0.1, reg_lambda=0.1, random_state=42, n_jobs=-1)
@@ -306,8 +334,159 @@ if page == "策略回测板块":
                 st.code(traceback.format_exc())
 
 # ==========================================
-# 4. 板块二：实盘轮动指令 (独立环境)
+# 4. 板块二：实盘轮动指令 (完全集成后端逻辑)
 # ==========================================
+def run_realtime_scan(current_cash, current_portfolio_val, top_k):
+    """原生集成原 main.py 的逻辑，不再依赖 HTTP 端口请求"""
+    model = load_xgboost_model()
+    if model is None:
+        raise Exception("未找到通用的量化预测模型文件，请先在左侧菜单点击“重新训练核心模型”！")
+        
+    # 风控检查
+    if RiskManager is not None:
+        risk_mgr = RiskManager(max_drawdown_pct=0.15)
+        is_safe = risk_mgr.check_portfolio_risk(current_portfolio_val)
+        if not is_safe:
+            return {
+                "action": "FORCE_LIQUIDATE",
+                "reason": "触发总资产风控熔断，执行全部强平",
+                "passed_risk_check": False
+            }
+    
+    # 登录 Baostock
+    lg = bs.login()
+    if lg.error_code != '0':
+        raise Exception(f"Baostock 登录失败: {lg.error_msg}")
+        
+    try:
+        rs_index = bs.query_history_k_data_plus(
+            "sh.000001", "date,close", 
+            start_date="2023-12-01", end_date="2026-12-31",
+            frequency="d", adjustflag="3"
+        )
+        index_data_list = []
+        while (rs_index.error_code == '0') & rs_index.next():
+            index_data_list.append(rs_index.get_row_data())
+            
+        df_index = pd.DataFrame(index_data_list, columns=rs_index.fields)
+        df_index['date'] = pd.to_datetime(df_index['date'])
+        df_index.set_index('date', inplace=True)
+        df_index = df_index.astype(float)
+        index_close = df_index['close']
+        index_close.name = 'index_close'
+    except Exception as e:
+        bs.logout()
+        raise Exception(f"大盘数据获取失败: {str(e)}")
+
+    scored_stocks = []
+
+    for symbol, name in UNIVERSE_MAPPING.items():
+        try:
+            bs_symbol = f"sh.{symbol[2:]}" if symbol.startswith("sh") else f"sz.{symbol[2:]}"
+            
+            rs_stock = bs.query_history_k_data_plus(
+                bs_symbol, "date,open,close,volume",  
+                start_date="2023-12-01", end_date="2026-12-31",
+                frequency="d", adjustflag="3"
+            )
+            
+            stock_data_list = []
+            while (rs_stock.error_code == '0') & rs_stock.next():
+                stock_data_list.append(rs_stock.get_row_data())
+                
+            if not stock_data_list: continue
+
+            df_stock = pd.DataFrame(stock_data_list, columns=rs_stock.fields)
+            df_stock['date'] = pd.to_datetime(df_stock['date'])
+            df_stock.set_index('date', inplace=True)
+            df_stock.replace("", np.nan, inplace=True)
+            df_stock = df_stock.astype(float)
+
+            df = df_stock.join(index_close, how='left') 
+            df['index_close'] = df['index_close'].ffill().bfill()
+            
+            rs = bs.query_history_k_data_plus(
+                bs_symbol, "date,peTTM,pbMRQ", 
+                start_date="2024-01-01", end_date="2026-12-31",
+                frequency="d", adjustflag="3"
+            )
+            
+            data_list = []
+            while (rs.error_code == '0') & rs.next():
+                data_list.append(rs.get_row_data())
+                
+            if data_list:
+                df_fundamental = pd.DataFrame(data_list, columns=rs.fields)
+                df_fundamental['date'] = pd.to_datetime(df_fundamental['date'])
+                df_fundamental.set_index('date', inplace=True)
+                df_fundamental.replace("", np.nan, inplace=True)
+                df_fundamental = df_fundamental.astype(float).ffill()
+                df = df.join(df_fundamental, how='left')
+                df['peTTM'] = df['peTTM'].ffill()
+                df['pbMRQ'] = df['pbMRQ'].ffill()
+            else:
+                df['peTTM'] = np.nan
+                df['pbMRQ'] = np.nan
+
+            df['returns'] = df['close'].pct_change()
+            df['volatility'] = df['returns'].rolling(5).std()
+            df['mom_5'] = df['close'].pct_change(5)
+            
+            ema_12 = df['close'].ewm(span=12, adjust=False).mean()
+            ema_26 = df['close'].ewm(span=26, adjust=False).mean()
+            df['macd'] = ema_12 - ema_26
+            
+            df['trade_return'] = df['close'].pct_change() 
+            df['index_return'] = df['index_close'].pct_change(fill_method=None)
+            df['relative_strength'] = df['trade_return'] - df['index_return']
+            df['market_panic'] = df['index_return'].rolling(20).std() 
+            
+            df['vol_ratio'] = df['volume'] / df['volume'].rolling(5).mean()
+            df['bias_20'] = df['close'] / df['close'].rolling(20).mean() - 1
+            
+            df.dropna(inplace=True)
+            if df.empty: continue
+                
+            # 10 维特征提取
+            feature_cols = [
+                'peTTM', 'pbMRQ',                  
+                'relative_strength', 'market_panic', 
+                'returns', 'volatility', 'mom_5', 'macd',
+                'vol_ratio', 'bias_20'
+            ]
+            latest_features = df[feature_cols].iloc[[-1]]
+            pred_prob = float(model.predict_proba(latest_features)[0][1])
+            
+            current_close = float(df['close'].iloc[-1])
+            ma_20 = float(df['close'].rolling(20).mean().iloc[-1]) if len(df) >= 20 else current_close
+            
+            scored_stocks.append({
+                "ticker": symbol,
+                "name": name,
+                "probability": pred_prob,
+                "current_price": current_close,
+                "suggested_buy_range": f"¥{current_close*0.995:.2f} - ¥{current_close*1.005:.2f}",
+                "stop_loss_price": round(max(ma_20 * 0.95, current_close * 0.93), 2), 
+                "target_price": round(current_close * 1.05, 2) 
+            })
+            
+        except Exception as e:
+            continue
+            
+    bs.logout()
+
+    scored_stocks.sort(key=lambda x: x['probability'], reverse=True)
+    top_picks = [s for s in scored_stocks[:top_k] if s['probability'] > 0.50]
+    
+    return {
+        "action": "ALLOCATE" if top_picks else "HOLD_CASH",
+        "passed_risk_check": True,
+        "universe_size": len(UNIVERSE_MAPPING),
+        "top_picks": top_picks,
+        "all_scores": scored_stocks 
+    }
+
+
 if page == "实盘轮动板块":
     st.subheader("实盘轮动监控指令")
     st.caption("系统将自动扫描全市场核心资产，并执行 AI 智能打分与风控。")
@@ -321,21 +500,14 @@ if page == "实盘轮动板块":
         check_btn = st.button("扫描全宇宙获取轮动指令", use_container_width=True)
 
     if check_btn:
-        payload = {
-            "current_cash": current_cash, 
-            "current_portfolio_val": portfolio_val,
-            "top_k": top_k_input
-        }
         try:
-            with st.spinner(f"正在并发抓取底层资产数据，执行 XGBoost 截面横向打分..."):
-                res = requests.post("http://127.0.0.1:8000/get_portfolio_signals", json=payload, timeout=60)
-                
-            if res.status_code == 200:
-                data = res.json()
+            with st.spinner(f"正在抓取底层资产数据，执行 XGBoost 截面横向打分..."):
+                # 直接调用合并到本地的方法，不再走 HTTP requests
+                data = run_realtime_scan(current_cash, portfolio_val, top_k_input)
                 save_result_to_file("latest_signals.json", data)
                 st.rerun() 
         except Exception as e:
-            st.error(f"无法连接到后端，或发生未知错误：{str(e)}")
+            st.error(f"信号生成失败：{str(e)}")
 
     if cached_signals:
         data = cached_signals
@@ -352,14 +524,13 @@ if page == "实盘轮动板块":
             if data.get('action') == "HOLD_CASH":
                 st.warning("**当前大盘环境恶劣或无高胜率标的，AI 建议：持币观望，不予建仓。**")
             elif data.get('action') == "ALLOCATE":
-                st.success(f"**AI 建议：执行资金等权分配，买入以下 Top {len(data['top_picks'])} 标的**")
+                st.success(f"**AI 建议：执行资金等权分配，买入以下 Top {len(data.get('top_picks', []))} 标的**")
                 cols = st.columns(len(data['top_picks']))
                 for i, pick in enumerate(data['top_picks']):
                     with cols[i]:
                         st.info(f"**{pick['name']}** ({pick['ticker']})")
                         st.metric("上涨置信度", f"{pick['probability']*100:.1f}%")
                         
-                        # 🆕 增加具体的交易操作建议详情
                         st.markdown("---")
                         st.markdown(f"* **最新参考价**: ¥{pick.get('current_price', 0):.2f}")
                         st.markdown(f"* **建议买入区间**: {pick.get('suggested_buy_range', '市价附近')}")
