@@ -10,6 +10,12 @@ import yfinance as yf
 import json
 import sys
 import importlib
+import urllib.parse
+
+try:
+    import akshare as ak
+except ImportError:
+    ak = None
 
 # 将项目根目录添加到 Python 模块搜索路径中
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -77,22 +83,33 @@ def load_result_from_file(filename):
     return None
 
 # ==========================================
-# 2. 侧边栏：多页面导航系统
+# 2. 侧边栏导航
 # ==========================================
 st.sidebar.header("导航控制台")
 page = st.sidebar.radio(
     "请选择操作模式",
-    ["策略回测板块", "实盘轮动板块"]
+    ["实盘轮动板块", "策略回测板块", "全网重大新闻板块"]  # 🆕 新增新闻板块选项
 )
 st.sidebar.markdown("---")
 st.sidebar.subheader("系统与模型管理")
 
+if st.sidebar.button("重新训练核心模型 (耗时较长)", use_container_width=True):
+    with st.spinner("正在拉取全市场数据并重新训练，预计需要 1-2 分钟..."):
+        try:
+            importlib.reload(train_model)
+            train_model.train_and_save()
+            load_xgboost_model.clear() 
+            st.sidebar.success("模型重新训练成功！最新模型已生效。")
+        except Exception as e:
+            st.sidebar.error(f"模型训练失败: {str(e)}")
             
 st.sidebar.markdown("---")
 if page == "策略回测板块":
     st.sidebar.info("在此处进行多因子截面轮动的历史回测评估。")
-else:
+elif page == "实盘轮动板块":
     st.sidebar.info("在此处实时获取 AI 模型的持仓和交易指令。")
+else:
+    st.sidebar.info("自动抓取东方财富及权威媒体的 7x24 小时重大事件。")
 
 # ==========================================
 # 3. 板块一：策略回测 (独立环境)
@@ -567,3 +584,125 @@ if page == "实盘轮动板块":
                     st.info("当前没有获取到有效的截面打分数据。")
     else:
         st.info("💡 当前暂无轮动指令缓存。请在左侧边栏点击“扫描全宇宙获取轮动指令”生成实时信号。")
+
+# ==========================================
+# 5. 🆕 全网重大新闻板块 (基于东方财富/权威信源)
+# ==========================================
+elif page == "全网重大新闻板块":
+    st.header("🌐 市场宏观与板块情报中心")
+    st.caption("聚合东方财富 7x24 实时电报，支持按行业板块智能过滤，辅助量化决策。")
+    
+    if ak is None:
+        st.error("⚠️ 核心抓取组件缺失。请在服务器或本地终端运行：`pip install akshare` 然后刷新页面。")
+        st.stop()
+        
+    # 定义带缓存的抓取函数（5分钟刷新一次，防止IP被封）
+    @st.cache_data(ttl=300)
+    def fetch_market_news():
+        # 定义按顺序尝试的备用新闻接口列表
+        # stock_zh_a_alerts_cls: 财联社最新快讯接口
+        # stock_info_global_sina: 新浪全球资讯接口
+        # stock_info_global_futu: 富途资讯接口
+        fallback_funcs = ['stock_zh_a_alerts_cls', 'stock_info_global_sina', 'stock_info_global_futu']
+        
+        df_news = pd.DataFrame()
+        
+        for func_name in fallback_funcs:
+            # 检查当前版本的 akshare 是否存在该函数
+            if hasattr(ak, func_name):
+                try:
+                    # 动态调用该函数
+                    fetch_func = getattr(ak, func_name)
+                    df = fetch_func()
+                    
+                    if not df.empty:
+                        # 不管不同接口返回的列名是什么，强行取前三列或前两列作为内容
+                        if len(df.columns) >= 3:
+                            df = df.iloc[:, :3]
+                            df.columns = ["发布时间", "标题", "内容"]
+                        elif len(df.columns) == 2:
+                            df = df.iloc[:, :2]
+                            df.columns = ["发布时间", "内容"]
+                            df.insert(1, "标题", df["内容"].str[:20] + "...") # 截取内容作为标题
+                            
+                        # 尝试转换时间格式
+                        try:
+                            df['发布时间'] = pd.to_datetime(df['发布时间'])
+                        except:
+                            pass
+                            
+                        df_news = df
+                        break # 成功抓取到数据，跳出循环
+                except Exception as e:
+                    print(f"接口 {func_name} 抓取失败: {e}，尝试下一个...")
+                    continue
+                    
+        if df_news.empty:
+            st.error("🚨 所有备用新闻接口均失效！请在终端执行 `pip install --upgrade akshare` 升级库版本。")
+            
+        return df_news
+
+    with st.spinner("正在连接核心数据源抓取最新情报，请稍候..."):
+        df_news = fetch_market_news()
+        
+    if not df_news.empty:
+        # 拆分三个子板块供客户使用
+        tab1, tab2, tab3 = st.tabs(["🔴 7x24 实时全网快讯 (东财)", "🏛️ 权威政策与宏观", "🔍 行业板块焦点搜索"])
+        
+        with tab1:
+            st.markdown("#### ⚡ 东方财富实时电报 (全网监控)")
+            # 仅展示最近的 50 条
+            st.dataframe(
+                df_news.head(50),
+                use_container_width=True,
+                column_config={
+                    "发布时间": st.column_config.DatetimeColumn("时间", format="MM-DD HH:mm:ss"),
+                    "标题": st.column_config.TextColumn("核心摘要", width="medium"),
+                    "内容": st.column_config.TextColumn("详细情报", width="large")
+                },
+                hide_index=True
+            )
+            
+        with tab2:
+            st.markdown("#### 🏛️ 宏观政策、央行与监管层动向")
+            st.caption("自动过滤出包含“央行、证监会、国务院、发改委、财政部”等权威机构的重点信号。")
+            
+            # 关键词过滤逻辑
+            macro_keywords = "央行|证监会|国务院|发改委|财政部|统计局|外管局|降息|降准|政策"
+            df_macro = df_news[df_news['内容'].str.contains(macro_keywords, na=False, regex=True)]
+            
+            if not df_macro.empty:
+                for idx, row in df_macro.head(15).iterrows():
+                    st.info(f"**[{row['发布时间']}] {row['标题']}**\n\n{row['内容']}")
+            else:
+                st.success("过去24小时内暂无重大宏观政策变动情报。")
+                
+        with tab3:
+            st.markdown("#### 🔍 特定行业板块情报挖掘")
+            st.caption("想知道某个板块（如：半导体、新能源、医药）最近发生了什么？在这里检索。")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                search_kw = st.text_input("输入板块或个股关键词", value="半导体")
+            with col2:
+                # 为了与输入框对齐，加一点换行
+                st.write("") 
+                st.write("")
+                search_btn = st.button("挖掘相关情报", use_container_width=True)
+                
+            if search_kw:
+                df_sector = df_news[df_news['内容'].str.contains(search_kw, na=False, regex=False)]
+                if not df_sector.empty:
+                    st.success(f"为您检索到包含「{search_kw}」的最新重要情报 {len(df_sector)} 条：")
+                    st.dataframe(
+                        df_sector.head(30),
+                        use_container_width=True,
+                        column_config={
+                            "发布时间": st.column_config.DatetimeColumn("时间", format="MM-DD HH:mm:ss"),
+                            "标题": st.column_config.TextColumn("情报标题"),
+                            "内容": st.column_config.TextColumn("内容详情")
+                        },
+                        hide_index=True
+                    )
+                else:
+                    st.warning(f"当前监控周期内，未在东方财富快讯中找到关于「{search_kw}」的新闻。")
