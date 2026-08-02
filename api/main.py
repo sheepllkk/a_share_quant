@@ -167,6 +167,7 @@ def generate_portfolio_signals(req: PortfolioRequest):
             ]
             latest_features = df[feature_cols].iloc[[-1]]
             pred_prob = float(model.predict_proba(latest_features)[0][1])
+            
             # 获取最新收盘价用于计算交易建议
             current_close = float(df['close'].iloc[-1])
             ma_20 = float(df['close'].rolling(20).mean().iloc[-1]) if len(df) >= 20 else current_close

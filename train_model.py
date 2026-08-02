@@ -4,18 +4,11 @@ import numpy as np
 import os
 import joblib
 import xgboost as xgb
-import baostock as bs
+import yfinance as yf
+import baostock as bs  # 🆕 新增：用于获取基本面特征
 
-# 🌟 自动清除代理环境变量，防止 Baostock 登录失败
-os.environ['http_proxy'] = ''
-os.environ['https_proxy'] = ''
-os.environ['HTTP_PROXY'] = ''
-os.environ['HTTPS_PROXY'] = ''
-os.environ['all_proxy'] = ''
-os.environ['ALL_PROXY'] = ''
-
-# 🌟 核心资产池 (和 main.py 完全对齐)
-UNIVERSE = {
+# 🌟 核心资产池
+UNIVERSE_MAPPING = {
     "sh600519": "贵州茅台", "sz000858": "五粮液",
     "sh600036": "招商银行", "sh601318": "中国平安",
     "sz300750": "宁德时代", "sz002594": "比亚迪",
@@ -26,61 +19,68 @@ UNIVERSE = {
 def build_training_data():
     all_stock_dfs = []
 
-    # 1. 登录 Baostock
-    lg = bs.login()
-    if lg.error_code != '0':
-        raise Exception(f"Baostock 登录失败: {lg.error_msg}")
+    print(f"📡 开始拉取 {len(UNIVERSE_MAPPING)} 只核心资产的训练数据 (包含基本面数据)...")
 
-    print(f"📡 开始拉取 {len(UNIVERSE)} 只核心资产的训练数据...")
-
-    # 2. 先拉取大盘数据 (000001.SH)
-    rs_index = bs.query_history_k_data_plus(
-        "sh.000001", "date,close",
-        start_date="2018-01-01", end_date="2026-12-31",
-        frequency="d", adjustflag="3"
-    )
-    index_data = []
-    while (rs_index.error_code == '0') & rs_index.next():
-        index_data.append(rs_index.get_row_data())
+    # 1. 获取大盘数据 (上证指数 000001.SS)
+    df_index = yf.download("000001.SS", start="2018-01-01", end="2026-12-31", progress=False)
+    if isinstance(df_index.columns, pd.MultiIndex):
+        df_index.columns = df_index.columns.get_level_values(0)
+    index_close = df_index['Close']
+    index_close.name = 'index_close'
+    index_close.index = pd.to_datetime(index_close.index).tz_localize(None)
     
-    df_index = pd.DataFrame(index_data, columns=rs_index.fields)
-    df_index['date'] = pd.to_datetime(df_index['date'])
-    df_index.set_index('date', inplace=True)
-    df_index = df_index.astype(float)['close']
-    df_index.name = 'index_close'
+    # 🆕 登录 Baostock
+    bs.login()
 
-    # 3. 循环抓取每只股票的数据
-    for symbol, name in UNIVERSE.items():
+    # 2. 循环抓取每只股票的数据
+    for symbol, name in UNIVERSE_MAPPING.items():
         try:
-            bs_symbol = f"sh.{symbol[2:]}" if symbol.startswith("sh") else f"sz.{symbol[2:]}"
+            # --- yfinance 获取量价数据 ---
+            code = symbol[2:]
+            suffix = ".SS" if symbol.startswith("sh") else ".SZ"
+            yahoo_ticker = f"{code}{suffix}"
             
-            # 获取个股量价 + 基本面 (peTTM, pbMRQ)
-            rs_stock = bs.query_history_k_data_plus(
-                bs_symbol,
-                "date,open,close,volume,peTTM,pbMRQ",
-                start_date="2018-01-01", end_date="2026-12-31",
-                frequency="d", adjustflag="3"
-            )
-            
-            data_list = []
-            while (rs_stock.error_code == '0') & rs_stock.next():
-                data_list.append(rs_stock.get_row_data())
-                
-            if not data_list:
-                print(f"⚠️ 跳过 {symbol}，无数据")
+            df = yf.download(yahoo_ticker, start="2018-01-01", end="2026-12-31", progress=False)
+            if df.empty:
                 continue
                 
-            df = pd.DataFrame(data_list, columns=rs_stock.fields)
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
-            df.replace("", np.nan, inplace=True)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            
+            df.rename(columns={'Open': 'open', 'Close': 'close', 'Volume': 'volume'}, inplace=True)
+            df.index = pd.to_datetime(df.index).tz_localize(None)
             df = df.astype(float)
 
             # 合并大盘数据
-            df = df.join(df_index, how='left')
+            df = df.join(index_close, how='left')
             df['index_close'] = df['index_close'].ffill().bfill()
+            
+            # 🆕 --- Baostock 获取基本面特征 (peTTM, pbMRQ) ---
+            bs_symbol = f"sh.{code}" if symbol.startswith("sh") else f"sz.{code}"
+            rs = bs.query_history_k_data_plus(
+                bs_symbol, "date,peTTM,pbMRQ",
+                start_date="2018-01-01", end_date="2026-12-31",
+                frequency="d", adjustflag="3"
+            )
+            data_list = []
+            while (rs.error_code == '0') & rs.next():
+                data_list.append(rs.get_row_data())
+            
+            if data_list:
+                df_fund = pd.DataFrame(data_list, columns=rs.fields)
+                df_fund['date'] = pd.to_datetime(df_fund['date'])
+                df_fund.set_index('date', inplace=True)
+                df_fund.replace("", np.nan, inplace=True)
+                df_fund = df_fund.astype(float).ffill()
+                
+                df = df.join(df_fund, how='left')
+                df['peTTM'] = df['peTTM'].ffill()
+                df['pbMRQ'] = df['pbMRQ'].ffill()
+            else:
+                df['peTTM'] = np.nan
+                df['pbMRQ'] = np.nan
 
-            # 🌟 10 维核心特征工程 (加入量能与乖离率)
+            # 🌟 10 维核心特征工程 (加入 PE/PB)
             df['returns'] = df['close'].pct_change()
             df['volatility'] = df['returns'].rolling(5).std()
             df['mom_5'] = df['close'].pct_change(5)
@@ -94,16 +94,14 @@ def build_training_data():
             df['relative_strength'] = df['trade_return'] - df['index_return']
             df['market_panic'] = df['index_return'].rolling(20).std()
             
-            # 🆕 新增特征：量能突变与均线乖离
-            df['vol_ratio'] = df['volume'] / df['volume'].rolling(5).mean() # 量比
-            df['bias_20'] = df['close'] / df['close'].rolling(20).mean() - 1 # 20日乖离率，捕捉均值回归
+            df['vol_ratio'] = df['volume'] / df['volume'].rolling(5).mean() 
+            df['bias_20'] = df['close'] / df['close'].rolling(20).mean() - 1 
 
-            # 🌟 目标函数重构：从"预测绝对收益"改为"预测次日是否跑赢大盘"
+            # 🌟 目标函数：预测次日是否跑赢大盘
             df['next_1d_ret'] = df['close'].shift(-1) / df['close'] - 1
             df['next_1d_idx'] = df['index_close'].shift(-1) / df['index_close'] - 1
             df['target'] = (df['next_1d_ret'] > df['next_1d_idx']).astype(int)
 
-            # 清理缺失值
             df.dropna(inplace=True)
             if df.empty:
                 continue
@@ -115,75 +113,57 @@ def build_training_data():
         except Exception as e:
             print(f"❌ 加载 {symbol} 失败: {e}")
             continue
-
-    # 登出
+            
+    # 🆕 登出 Baostock
     bs.logout()
 
     if not all_stock_dfs:
         raise ValueError("所有标的训练数据拉取失败。")
         
-    # 拼接所有数据
     return pd.concat(all_stock_dfs, axis=0)
 
 def train_and_save():
-    print("🚀 开始全市场多标的 8 维特征面板数据构建...")
-    
-    # 1. 获取拼接好的全部数据
+    print("🚀 开始构建 10 维量价与基本面特征模型...")
     full_df = build_training_data()
     
+    # 🆕 特征列表：加入 peTTM 和 pbMRQ 构成 10 维
     feature_cols = [
-        'peTTM', 'pbMRQ',                  
+        'peTTM', 'pbMRQ',
         'relative_strength', 'market_panic', 
         'returns', 'volatility', 'mom_5', 'macd',
-        'vol_ratio', 'bias_20'  # 🆕 注册新特征
+        'vol_ratio', 'bias_20'
     ]
 
-    # 2. 定义截面归一化函数
     def cross_section_normalize(df, cols):
         for col in cols:
-            # 🌟 修复点：使用 level=0 防止 Date/date 大小写索引报错
             df[col] = df.groupby(level=0)[col].transform(
                 lambda x: (x - x.mean()) / (x.std() + 1e-8) if len(x) > 1 else 0
             )
         return df
 
-    # 3. 直接对 full_df 执行归一化
     full_df = cross_section_normalize(full_df, feature_cols)
     full_df.dropna(inplace=True)
 
-    # 4. 归一化清洗完毕后，再切分训练集
     train_df = full_df[full_df.index < "2024-01-01"]
-    if len(train_df) < 100:
-        print("❌ 训练样本不足，请检查日期范围是否包含 2018-2023 年数据。")
-        return
 
     X_train = train_df[feature_cols]
     y_train = train_df['target']
     
     print(f"🧠 开始训练 XGBoost 模型，样本量: {len(X_train)}...")
     model = xgb.XGBClassifier(
-        n_estimators=100,
-        learning_rate=0.05,
-        max_depth=3,
-        min_child_weight=3,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        reg_alpha=0.1,
-        reg_lambda=0.1,
-        random_state=42,
-        n_jobs=-1
+        n_estimators=100, learning_rate=0.05, max_depth=3, 
+        min_child_weight=3, subsample=0.8, colsample_bytree=0.8, 
+        reg_alpha=0.1, reg_lambda=0.1, random_state=42, n_jobs=-1
     )
-    
     model.fit(X_train, y_train)
     
-    # 🌟 修复点：使用绝对路径，确保无论从终端还是网页端调用，都保存在根目录下的 model 文件夹
     base_dir = os.path.dirname(os.path.abspath(__file__))
     model_dir = os.path.join(base_dir, "model")
     os.makedirs(model_dir, exist_ok=True)
     model_path = os.path.join(model_dir, "general_market_model.pkl")
     
     joblib.dump(model, model_path)
-    print(f"🎉 炼丹大成功！8 维特征模型已覆盖保存至: {model_path}")
+    print(f"🎉 炼丹大成功！10 维多因子模型已保存至: {model_path}")
 
 if __name__ == "__main__":
     train_and_save()
