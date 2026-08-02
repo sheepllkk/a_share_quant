@@ -167,11 +167,18 @@ def generate_portfolio_signals(req: PortfolioRequest):
             ]
             latest_features = df[feature_cols].iloc[[-1]]
             pred_prob = float(model.predict_proba(latest_features)[0][1])
+            # 获取最新收盘价用于计算交易建议
+            current_close = float(df['close'].iloc[-1])
+            ma_20 = float(df['close'].rolling(20).mean().iloc[-1]) if len(df) >= 20 else current_close
             
             scored_stocks.append({
                 "ticker": symbol,
                 "name": name,
-                "probability": pred_prob
+                "probability": pred_prob,
+                "current_price": current_close,
+                "suggested_buy_range": f"¥{current_close*0.995:.2f} - ¥{current_close*1.005:.2f}", # 允许在现价上下0.5%内回踩吸纳
+                "stop_loss_price": round(max(ma_20 * 0.95, current_close * 0.93), 2), # 动态止损线
+                "target_price": round(current_close * 1.05, 2) # 5% 盈利目标观察位
             })
             
         except Exception as e:

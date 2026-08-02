@@ -353,7 +353,7 @@ if page == "策略回测板块":
 # ==========================================
 if page == "实盘轮动板块":
     st.subheader("实盘轮动监控指令")
-    st.caption("系统将自动扫描全市场核心资产，并执行 AI 智能打分与风控。")
+    st.caption("系统将自动扫描全市场核心资产，并执行 AI 智能打分与交易指引。")
     
     cached_signals = load_result_from_file("latest_signals.json")
     
@@ -364,53 +364,136 @@ if page == "实盘轮动板块":
         check_btn = st.button("扫描全宇宙获取轮动指令", type="primary", use_container_width=True)
 
     if check_btn:
-        payload = {
-            "current_cash": current_cash, 
-            "current_portfolio_val": portfolio_val,
-            "top_k": top_k_input
-        }
-        try:
-            with st.spinner(f"正在并发抓取底层资产数据，执行 XGBoost 截面横向打分..."):
-                res = requests.post("http://127.0.0.1:8000/get_portfolio_signals", json=payload, timeout=60)
-                
-            if res.status_code == 200:
-                data = res.json()
-                save_result_to_file("latest_signals.json", data)
-                st.rerun() 
-        except Exception as e:
-            st.error(f"无法连接到后端，或发生未知错误：{str(e)}")
+        model_path = "model/general_market_model.pkl"
+        if not os.path.exists(model_path):
+            st.error("未找到通用的量化预测模型文件，请先在左侧点击重新训练核心模型！")
+        else:
+            try:
+                with st.spinner("正在加载模型，并发拉取底层资产实时数据，执行特征工程与交易建议生成..."):
+                    model = joblib.load(model_path)
+                    
+                    # 1. 登录 Baostock 获取大盘
+                    bs.login()
+                    rs_index = bs.query_history_k_data_plus(
+                        "sh.000001", "date,close", 
+                        start_date="2023-12-01", end_date="2026-12-31",
+                        frequency="d", adjustflag="3"
+                    )
+                    index_data_list = []
+                    while (rs_index.error_code == '0') & rs_index.next():
+                        index_data_list.append(rs_index.get_row_data())
+                    df_index = pd.DataFrame(index_data_list, columns=rs_index.fields)
+                    df_index['date'] = pd.to_datetime(df_index['date'])
+                    df_index.set_index('date', inplace=True)
+                    index_close = df_index.astype(float)['close']
+                    index_close.name = 'index_close'
+
+                    UNIVERSE_MAPPING = {
+                        "sh600519": "贵州茅台", "sz000858": "五粮液", "sh600036": "招商银行", "sh601318": "中国平安",
+                        "sz300750": "宁德时代", "sz002594": "比亚迪", "sh688981": "中芯国际", "sz002475": "立讯精密",
+                        "sz300059": "东方财富", "sh600570": "恒生电子"
+                    }
+                    
+                    scored_stocks = []
+                    for symbol, name in UNIVERSE_MAPPING.items():
+                        bs_symbol = f"sh.{symbol[2:]}" if symbol.startswith("sh") else f"sz.{symbol[2:]}"
+                        rs_stock = bs.query_history_k_data_plus(
+                            bs_symbol, "date,open,close,volume",  
+                            start_date="2023-12-01", end_date="2026-12-31",
+                            frequency="d", adjustflag="3"
+                        )
+                        stock_data_list = []
+                        while (rs_stock.error_code == '0') & rs_stock.next():
+                            stock_data_list.append(rs_stock.get_row_data())
+                        if not stock_data_list: continue
+
+                        df_stock = pd.DataFrame(stock_data_list, columns=rs_stock.fields)
+                        df_stock['date'] = pd.to_datetime(df_stock['date'])
+                        df_stock.set_index('date', inplace=True)
+                        df_stock = df_stock.astype(float)
+
+                        df = df_stock.join(index_close, how='left').ffill().bfill()
+                        
+                        # 获取基本面
+                        rs = bs.query_history_k_data_plus(bs_symbol, "date,peTTM,pbMRQ", start_date="2024-01-01", end_date="2026-12-31", frequency="d", adjustflag="3")
+                        data_list = []
+                        while (rs.error_code == '0') & rs.next(): data_list.append(rs.get_row_data())
+                        if data_list:
+                            df_fund = pd.DataFrame(data_list, columns=rs.fields)
+                            df_fund['date'] = pd.to_datetime(df_fund['date'])
+                            df_fund.set_index('date', inplace=True)
+                            df_fund = df_fund.astype(float).ffill()
+                            df = df.join(df_fund, how='left').ffill()
+                        else:
+                            df['peTTM'] = np.nan
+                            df['pbMRQ'] = np.nan
+
+                        # 特征工程
+                        df['returns'] = df['close'].pct_change()
+                        df['volatility'] = df['returns'].rolling(5).std()
+                        df['mom_5'] = df['close'].pct_change(5)
+                        df['macd'] = df['close'].ewm(span=12, adjust=False).mean() - df['close'].ewm(span=26, adjust=False).mean()
+                        df['trade_return'] = df['close'].pct_change() 
+                        df['index_return'] = df['index_close'].pct_change(fill_method=None)
+                        df['relative_strength'] = df['trade_return'] - df['index_return']
+                        df['market_panic'] = df['index_return'].rolling(20).std() 
+                        df['vol_ratio'] = df['volume'] / df['volume'].rolling(5).mean()
+                        df['bias_20'] = df['close'] / df['close'].rolling(20).mean() - 1
+                        df.dropna(inplace=True)
+                        if df.empty: continue
+
+                        feature_cols = ['peTTM', 'pbMRQ', 'relative_strength', 'market_panic', 'returns', 'volatility', 'mom_5', 'macd', 'vol_ratio', 'bias_20']
+                        pred_prob = float(model.predict_proba(df[feature_cols].iloc[[-1]])[0][1])
+                        current_close = float(df['close'].iloc[-1])
+                        ma_20 = float(df['close'].rolling(20).mean().iloc[-1]) if len(df) >= 20 else current_close
+
+                        scored_stocks.append({
+                            "ticker": symbol, "name": name, "probability": pred_prob,
+                            "current_price": current_close,
+                            "suggested_buy_range": f"¥{current_close*0.995:.2f} - ¥{current_close*1.005:.2f}",
+                            "stop_loss_price": round(max(ma_20 * 0.95, current_close * 0.93), 2),
+                            "target_price": round(current_close * 1.05, 2)
+                        })
+                    bs.logout()
+
+                    scored_stocks.sort(key=lambda x: x['probability'], reverse=True)
+                    top_picks = [s for s in scored_stocks[:top_k_input] if s['probability'] > 0.50]
+                    
+                    data = {
+                        "action": "ALLOCATE" if top_picks else "HOLD_CASH",
+                        "top_picks": top_picks,
+                        "all_scores": scored_stocks
+                    }
+                    save_result_to_file("latest_signals.json", data)
+                    st.rerun()
+            except Exception as e:
+                st.error(f"扫描计算出错: {str(e)}")
 
     if cached_signals:
         data = cached_signals
-        st.subheader("🛡️ 系统风控与大盘状态")
-        col1, col2 = st.columns(2)
-        col1.metric("资产池总扫描数", f"{data.get('universe_size', 0)} 只")
+        st.subheader("🛡️ 系统运行状态")
+        if data.get('action') == "HOLD_CASH":
+            st.warning("🟡 **当前大盘环境恶劣或无高胜率标的，AI 建议：持币观望，不予建仓。**")
+        elif data.get('action') == "ALLOCATE":
+            st.success(f"🟢 **AI 建议：执行资金等权分配，买入以下 Top {len(data['top_picks'])} 标的**")
+            cols = st.columns(len(data['top_picks']))
+            for i, pick in enumerate(data['top_picks']):
+                with cols[i]:
+                    st.info(f"**{pick['name']}** ({pick['ticker']})")
+                    st.metric("上涨置信度", f"{pick['probability']*100:.1f}%")
+                    st.markdown("---")
+                    st.markdown(f"* **最新参考价**: ¥{pick.get('current_price', 0):.2f}")
+                    st.markdown(f"* **建议买入区间**: {pick.get('suggested_buy_range', '市价附近')}")
+                    st.markdown(f"* **动态止损参考**: ¥{pick.get('stop_loss_price', 0):.2f}")
+                    st.markdown(f"* **短线目标位**: ¥{pick.get('target_price', 0):.2f}")
         
-        if not data.get('passed_risk_check', True):
-            col2.metric("风控状态", "❌ 触发熔断")
-            st.error(f"🚨 **强平警告**：{data.get('reason', '资产回撤超限，建议清仓！')}")
-        else:
-            col2.metric("风控状态", "✅ 安全无风险")
-            st.subheader("截面轮动交易指令")
-            if data.get('action') == "HOLD_CASH":
-                st.warning("🟡 **当前大盘环境恶劣或无高胜率标的，AI 建议：持币观望，不予建仓。**")
-            elif data.get('action') == "ALLOCATE":
-                st.success(f"🟢 **AI 建议：执行资金等权分配，买入以下 Top {len(data['top_picks'])} 标的**")
-                cols = st.columns(len(data['top_picks']))
-                for i, pick in enumerate(data['top_picks']):
-                    with cols[i]:
-                        st.info(f"**{pick['name']}** ({pick['ticker']})")
-                        st.metric("上涨置信度", f"{pick['probability']*100:.1f}%")
-            
-            with st.expander("查看全景股票池打分排名 (AI Score)"):
-                if 'all_scores' in data and data['all_scores']:
-                    df_scores = pd.DataFrame(data['all_scores'])
-                    df_scores.index += 1
-                    df_scores.rename(columns={'ticker':'代码', 'name':'名称', 'probability':'预测胜率'}, inplace=True)
-                    if not df_scores.empty and df_scores['预测胜率'].dtype != 'O':
-                        df_scores['预测胜率'] = df_scores['预测胜率'].apply(lambda x: f"{x*100:.2f}%")
-                    st.dataframe(df_scores, use_container_width=True)
-                else:
-                    st.info("当前没有获取到有效的截面打分数据。")
+        with st.expander("查看全景股票池打分排名 (AI Score)"):
+            if 'all_scores' in data and data['all_scores']:
+                df_scores = pd.DataFrame(data['all_scores'])
+                df_scores.index += 1
+                df_scores.rename(columns={'ticker':'代码', 'name':'名称', 'probability':'预测胜率'}, inplace=True)
+                if not df_scores.empty and df_scores['预测胜率'].dtype != 'O':
+                    df_scores['预测胜率'] = df_scores['预测胜率'].apply(lambda x: f"{x*100:.2f}%")
+                st.dataframe(df_scores, use_container_width=True)
     else:
         st.info("💡 当前暂无轮动指令缓存。请在左侧边栏点击“扫描全宇宙获取轮动指令”生成实时信号。")
