@@ -1,0 +1,11 @@
+streamlit
+requests
+pandas
+numpy
+joblib
+baostock
+xgboost
+yfinance
+fastapi
+uvicorn
+scikit-learn
